@@ -16,7 +16,9 @@ export const usePhysicsEngine = (
     zPos: 0,
     vibration: 0,
     cycleState: 'IDLE',
-    wear: 0
+    wear: 0,
+    sensorHealth: 100,
+    sensorStatus: 'OK'
   });
 
   const stateRef = useRef({
@@ -25,7 +27,8 @@ export const usePhysicsEngine = (
     zVel: 0,   
     cycleState: 'IDLE' as 'IDLE' | 'RAPID_DOWN' | 'CUTTING' | 'RETRACT',
     temperature: 45.0,
-    wearFactor: 0.0 // 0 to 1, increases over time during cuts
+    wearFactor: 0.0, // 0 to 1, increases over time during cuts
+    sensorHealth: 100.0 // Starts at 100%
   });
   
   const paramsRef = useRef(params);
@@ -39,7 +42,7 @@ export const usePhysicsEngine = (
   const stepPhysics = useCallback(() => {
     const { mass, stiffness, damping, baseForce, noiseLevel } = paramsRef.current;
     const { isCycleActive, feedOverride, spindleOverride, targetRpc, coolantActive } = controllerRef.current;
-    let { t, zPos, zVel, cycleState, temperature, wearFactor } = stateRef.current;
+    let { t, zPos, zVel, cycleState, temperature, wearFactor, sensorHealth } = stateRef.current;
 
     // --- 1. Controller Logic (Cycle State) ---
     const WORKPIECE_Z = 0.35;
@@ -151,12 +154,38 @@ export const usePhysicsEngine = (
     // Approx: 68 cSt at 40C. 
     const viscosity = 150 * Math.exp(-0.035 * (temperature - 25));
 
-    // --- 5. Integrate Motion ---
+    // --- 5. SENSOR HEALTH PHYSICS (Steinberg's Fatigue Model) ---
+    // Convert m/s^2 to G (1 G = 9.81 m/s^2)
+    const currentG = Math.abs(vibAccel) / 9.81;
+    
+    const maxRatedG = 50; // Generic Industrial IEPE limit
+    const fatigueExponent = 4.0; // Steinberg constant for harsh vibration
+    
+    // Thermal Aging (Arrhenius Equation simplified base decay)
+    const thermalDecay = 0.00005 * DT * (1 + (temperature / 100)); 
+    
+    // Cumulative Damage from Vibration (Palmgren-Miner Rule)
+    let vibrationDecay = 0;
+    if (currentG > 0.5) { // Threshold to ignore sensor noise floor
+       // Non-linear damage: High G shocks cause exponentially more damage
+       // Multiplied by 5.0 to make it visible in simulation time scales
+       vibrationDecay = Math.pow(currentG / maxRatedG, fatigueExponent) * DT * 5.0; 
+    }
+
+    sensorHealth = Math.max(0, sensorHealth - (thermalDecay + vibrationDecay));
+
+    let sensorStatus: 'OK' | 'WARNING' | 'CRITICAL' | 'FAILED' = 'OK';
+    if (sensorHealth < 1) sensorStatus = 'FAILED';
+    else if (sensorHealth < 20) sensorStatus = 'CRITICAL';
+    else if (sensorHealth < 50) sensorStatus = 'WARNING';
+
+
+    // --- 6. Integrate Motion ---
     zVel += (targetVel - zVel) * 0.05; 
     zPos += zVel * DT;
 
     t += DT;
-    stateRef.current = { t, zPos, zVel, cycleState, temperature, wearFactor };
+    stateRef.current = { t, zPos, zVel, cycleState, temperature, wearFactor, sensorHealth };
 
     return {
       timestamp: t,
@@ -168,7 +197,8 @@ export const usePhysicsEngine = (
       rpm: currentRpm + (Math.random() * 5),
       motorLoad: motorLoad,
       temperature: temperature,
-      viscosity: viscosity
+      viscosity: viscosity,
+      sensorStatus: sensorStatus
     };
   }, []);
 
@@ -190,7 +220,9 @@ export const usePhysicsEngine = (
              zPos: stateRef.current.zPos,
              vibration: dataPoint.displacement,
              cycleState: stateRef.current.cycleState,
-             wear: stateRef.current.wearFactor
+             wear: stateRef.current.wearFactor,
+             sensorHealth: stateRef.current.sensorHealth,
+             sensorStatus: dataPoint.sensorStatus
         });
         setTelemetry(prev => {
           const newData = [...prev, dataPoint];

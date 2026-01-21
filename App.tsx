@@ -256,6 +256,8 @@ const App: React.FC = () => {
                   wear={currentStat.wear} 
                   rul={rulPrediction}
                   status={stats.status}
+                  sensorHealth={currentStat.sensorHealth}
+                  sensorStatus={currentStat.sensorStatus}
                 />
                 <div className="flex-1 min-h-[400px]">
                   <TelemetryCharts 

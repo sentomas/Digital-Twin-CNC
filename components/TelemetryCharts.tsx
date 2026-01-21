@@ -27,28 +27,31 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
   const spectrumData = useMemo(() => {
     if (data.length < 32) return [];
     
-    // Simple DFT implementation for the dashboard
+    // Discrete Fourier Transform (DFT) implementation
     // We analyze the Displacement signal
-    const N = Math.min(data.length, 128); // Use last 128 points
-    const sampleRate = 200; // From Physics Engine DT=0.005
+    const N = Math.min(data.length, 128); // Use last 128 points for FFT window
+    const sampleRate = 200; // From Physics Engine DT=0.005 (1/0.005 = 200Hz)
     const spectrum = [];
     
-    // Calculate up to Nyquist (100Hz)
+    // Calculate up to Nyquist frequency (100Hz)
     for (let k = 0; k < N / 2; k++) {
       let real = 0;
       let imag = 0;
       for (let n = 0; n < N; n++) {
-        const val = data[data.length - N + n].displacement;
+        // Apply Hanning Window to reduce spectral leakage
+        const window = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (N - 1)));
+        const val = data[data.length - N + n].displacement * window;
+        
         const angle = -2 * Math.PI * k * n / N;
         real += val * Math.cos(angle);
         imag += val * Math.sin(angle);
       }
-      const magnitude = Math.sqrt(real * real + imag * imag) * 2 / N;
+      const magnitude = Math.sqrt(real * real + imag * imag) * 2 / N; // Normalize
       const freq = k * sampleRate / N;
       
-      // Filter out DC component
+      // Filter out DC component (0Hz) and very low freqs
       if (k > 0) {
-        spectrum.push({ freq: freq.toFixed(1), magnitude: magnitude * 1000 }); // mm
+        spectrum.push({ freq: freq.toFixed(1), magnitude: magnitude * 1000 }); // Convert to mm
       }
     }
     return spectrum;
@@ -129,6 +132,39 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
     };
   }, [stats, trendHistory, latestTelemetry.viscosity, latestTelemetry.temperature]);
 
+  // --- CSV Export Functionality ---
+  const downloadCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    let filename = "export.csv";
+
+    if (activeTab === 'TIME') {
+        csvContent += "Timestamp,Displacement_um,Velocity_mm_s\n";
+        chartData.forEach(row => {
+            csvContent += `${row.timestamp},${row.dispMicron},${row.velMM}\n`;
+        });
+        filename = "vibra_time_waveform.csv";
+    } else if (activeTab === 'SPECTRUM') {
+        csvContent += "Frequency_Hz,Magnitude_mm\n";
+        spectrumData.forEach(row => {
+            csvContent += `${row.freq},${row.magnitude}\n`;
+        });
+        filename = "vibra_fft_spectrum.csv";
+    } else if (activeTab === 'PREDICTION') {
+        csvContent += "Time,History_RMS,Forecast_RMS\n";
+        predictionResult.chartData.forEach(row => {
+            csvContent += `${row.rawTime},${row.history || ''},${row.forecast || ''}\n`;
+        });
+        filename = "vibra_rul_forecast.csv";
+    }
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -154,29 +190,38 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
         {/* Main Chart Area */}
         <div className="flex-1 bg-white rounded-xl border border-industrial-700 shadow-lg relative overflow-hidden flex flex-col min-h-[300px]">
             
-            {/* Header / Legend */}
+            {/* Header / Legend / Export */}
             <div className="h-8 bg-white border-b border-industrial-800 flex items-center px-4 justify-between">
                 <h3 className="text-xs text-industrial-600 font-bold font-mono uppercase">
                     {activeTab === 'TIME' && "Time Waveform & Phase Plane"}
                     {activeTab === 'SPECTRUM' && "Frequency Domain Analysis"}
                     {activeTab === 'PREDICTION' && "Trend Analysis & RUL Prediction"}
                 </h3>
-                {activeTab === 'TIME' && (
-                    <div className="flex items-center gap-4 text-[10px] font-mono">
-                        <span className="flex items-center gap-1 group relative cursor-help">
-                            <div className="w-2 h-2 bg-sky-500 rounded-full"></div> Disp
-                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-32 p-2 bg-industrial-text text-white text-[9px] rounded hidden group-hover:block z-50">
-                                <strong>Displacement:</strong><br/>Amplitude of vibration measured in microns.
+                
+                <div className="flex items-center gap-4">
+                    {activeTab === 'TIME' && (
+                        <div className="flex items-center gap-4 text-[10px] font-mono mr-2">
+                            <span className="flex items-center gap-1 group relative cursor-help">
+                                <div className="w-2 h-2 bg-sky-500 rounded-full"></div> Disp
                             </span>
-                        </span>
-                        <span className="flex items-center gap-1 group relative cursor-help">
-                            <div className="w-2 h-2 bg-indigo-500 rounded-full"></div> Orbit
-                            <span className="absolute bottom-full right-0 mb-2 w-32 p-2 bg-industrial-text text-white text-[9px] rounded hidden group-hover:block z-50">
-                                <strong>Orbit Plot:</strong><br/>Displacement vs Velocity.<br/>Circular = Unbalance<br/>Chaotic = Looseness
+                            <span className="flex items-center gap-1 group relative cursor-help">
+                                <div className="w-2 h-2 bg-indigo-500 rounded-full"></div> Orbit
                             </span>
-                        </span>
-                    </div>
-                )}
+                        </div>
+                    )}
+                    
+                    {/* Export Button */}
+                    <button 
+                        onClick={downloadCSV}
+                        className="flex items-center gap-1 px-2 py-1 bg-industrial-800 hover:bg-industrial-700 text-industrial-600 rounded text-[10px] font-bold border border-industrial-700 transition"
+                        title="Export current chart data to CSV"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        CSV
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 p-2 w-full h-full relative">
@@ -235,34 +280,52 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
 
                 {/* --- SPECTRUM TAB --- */}
                 {activeTab === 'SPECTRUM' && (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={spectrumData}>
-                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                            <XAxis 
-                                dataKey="freq" 
-                                tick={{fontSize: 10, fill: '#64748b'}} 
-                                label={{ value: 'Frequency (Hz)', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#64748b' }} 
-                                height={30}
-                            />
-                            <YAxis 
-                                tick={{fontSize: 10, fill: '#64748b'}} 
-                                width={30} 
-                            />
-                            <Tooltip 
-                                contentStyle={{ backgroundColor: '#fff', fontSize: '11px' }}
-                                labelFormatter={(label) => `${label} Hz`}
-                                formatter={(val: number) => [val.toFixed(4) + ' mm', 'Magnitude']}
-                            />
-                            {/* Changed from type="step" to "monotone" for smooth spectral curve */}
-                            <Area type="monotone" dataKey="magnitude" stroke="#8b5cf6" strokeWidth={2} fill="#8b5cf6" fillOpacity={0.2} isAnimationActive={false} />
-                            
-                            {/* Physics Model Markers */}
-                            <ReferenceLine x={stats.dominantFrequency} stroke="#16a34a" strokeDasharray="3 3" label={{ value: '1X (RPM)', position: 'insideTopLeft', fontSize: 10, fill: '#16a34a' }} />
-                            <ReferenceLine x={stats.dominantFrequency * 2} stroke="#ca8a04" strokeDasharray="3 3" label={{ value: '2X', position: 'insideTopLeft', fontSize: 10, fill: '#ca8a04' }} />
-                            <ReferenceLine x={stats.dominantFrequency * 3} stroke="#ca8a04" strokeDasharray="3 3" label={{ value: '3X', position: 'insideTopLeft', fontSize: 10, fill: '#ca8a04' }} />
-                            <ReferenceLine x={stats.dominantFrequency * 4} stroke="#dc2626" strokeDasharray="3 3" label={{ value: '4X (Blade)', position: 'insideTopLeft', fontSize: 10, fill: '#dc2626' }} />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                    <div className="h-full w-full relative">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={spectrumData}>
+                                <defs>
+                                    <linearGradient id="colorSpec" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
+                                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                                <XAxis 
+                                    dataKey="freq" 
+                                    tick={{fontSize: 10, fill: '#64748b'}} 
+                                    label={{ value: 'Frequency (Hz)', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#64748b' }} 
+                                    height={30}
+                                />
+                                <YAxis 
+                                    tick={{fontSize: 10, fill: '#64748b'}} 
+                                    width={30} 
+                                    label={{ value: 'Mag (mm)', angle: -90, position: 'insideLeft', fontSize: 10, fill: '#64748b' }}
+                                />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#fff', fontSize: '11px' }}
+                                    labelFormatter={(label) => `${label} Hz`}
+                                    formatter={(val: number) => [val.toFixed(4) + ' mm', 'Magnitude']}
+                                />
+                                <Area 
+                                    type="monotone" 
+                                    dataKey="magnitude" 
+                                    stroke="#8b5cf6" 
+                                    strokeWidth={2} 
+                                    fill="url(#colorSpec)" 
+                                    isAnimationActive={false} 
+                                />
+                                
+                                {/* Harmonic Markers */}
+                                <ReferenceLine x={stats.dominantFrequency} stroke="#16a34a" strokeDasharray="3 3" label={{ value: '1X', position: 'insideTop', fontSize: 10, fill: '#16a34a' }} />
+                                <ReferenceLine x={stats.dominantFrequency * 2} stroke="#ca8a04" strokeDasharray="3 3" label={{ value: '2X', position: 'insideTop', fontSize: 10, fill: '#ca8a04' }} />
+                                <ReferenceLine x={stats.dominantFrequency * 3} stroke="#ca8a04" strokeDasharray="3 3" label={{ value: '3X', position: 'insideTop', fontSize: 10, fill: '#ca8a04' }} />
+                                <ReferenceLine x={stats.dominantFrequency * 4} stroke="#dc2626" strokeDasharray="3 3" label={{ value: '4X', position: 'insideTop', fontSize: 10, fill: '#dc2626' }} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                        <div className="absolute top-2 right-4 text-[10px] bg-white/80 px-2 py-1 rounded border border-industrial-200 shadow-sm text-industrial-500">
+                            RPM Harmonics
+                        </div>
+                    </div>
                 )}
 
                 {/* --- PREDICTION TAB --- */}

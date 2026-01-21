@@ -56,6 +56,8 @@ export interface SimulationState {
   vibration: number; // Micro displacement
   cycleState: 'IDLE' | 'RAPID_DOWN' | 'CUTTING' | 'RETRACT';
   wear: number; // 0.0 to 1.0 representing tool/bearing degradation
+  sensorHealth: number; // 0 to 100% (Accelerometer Health)
+  sensorStatus: 'OK' | 'WARNING' | 'CRITICAL' | 'FAILED';
 }
 
 export interface MaintenanceInsight {
