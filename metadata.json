@@ -1,0 +1,5 @@
+{
+  "name": "VibraTwin AI - CNC Edition",
+  "description": "A digital twin for CNC machinery preventive maintenance. Simulates spindle vibration physics and uses Gemini 2.0 Flash to perform edge analytics and fault diagnosis like chatter, unbalance, and bearing wear.",
+  "requestFramePermissions": []
+}
