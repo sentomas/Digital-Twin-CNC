@@ -44,6 +44,10 @@ const CncController: React.FC<Props> = ({ controllerState, setControllerState, m
     setControllerState(prev => ({ ...prev, isCycleActive: false }));
   };
 
+  const toggleCoolant = () => {
+    setControllerState(prev => ({ ...prev, coolantActive: !prev.coolantActive }));
+  };
+
   return (
     <div className="bg-slate-800 rounded-xl border-4 border-slate-600 shadow-2xl p-1 flex flex-col h-full text-slate-100 font-mono">
       {/* HMI Bezel Header */}
@@ -78,6 +82,7 @@ const CncController: React.FC<Props> = ({ controllerState, setControllerState, m
             <div className="absolute bottom-2 left-4 text-xs text-green-500 flex gap-4">
                 <span>F{(500 * controllerState.feedOverride).toFixed(0)}</span>
                 <span>S{(controllerState.targetRpc * controllerState.spindleOverride).toFixed(0)}</span>
+                <span>{controllerState.coolantActive ? 'M08' : 'M09'}</span>
                 <span className={machineState.cycleState === 'CUTTING' ? 'bg-white text-black px-1' : ''}>
                     {machineState.cycleState}
                 </span>
@@ -128,6 +133,16 @@ const CncController: React.FC<Props> = ({ controllerState, setControllerState, m
                     className="h-12 bg-red-700 text-red-100 hover:bg-red-600 rounded shadow-lg border-b-4 border-red-900 font-bold text-sm tracking-wider transition active:translate-y-1"
                 >
                     FEED HOLD
+                </button>
+                <button 
+                    onClick={toggleCoolant}
+                    className={`h-10 rounded shadow font-bold text-xs tracking-wider transition active:translate-y-1 border-b-4 flex items-center justify-between px-4
+                    ${controllerState.coolantActive 
+                        ? 'bg-blue-600 text-white border-blue-800' 
+                        : 'bg-slate-600 text-slate-300 border-slate-800'}`}
+                >
+                    <span>COOLANT (M08)</span>
+                    <div className={`w-2 h-2 rounded-full ${controllerState.coolantActive ? 'bg-blue-200 shadow-[0_0_5px_white]' : 'bg-slate-900'}`}></div>
                 </button>
             </div>
         </div>

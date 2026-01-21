@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PhysicsParams, TelemetryPoint, SimulationState, ControllerState } from '../types';
 
-const DT = 0.01; // Time step (s)
-const MAX_HISTORY = 100;
+const DT = 0.005; // Time step (s) -> 200Hz Sample Rate (Nyquist = 100Hz)
+const MAX_HISTORY = 200; // 1 second buffer
 const SCREW_PITCH = 0.01; // 10mm pitch
 
 export const usePhysicsEngine = (
@@ -15,7 +15,8 @@ export const usePhysicsEngine = (
     t: 0,
     zPos: 0,
     vibration: 0,
-    cycleState: 'IDLE'
+    cycleState: 'IDLE',
+    wear: 0
   });
 
   const stateRef = useRef({
@@ -23,7 +24,8 @@ export const usePhysicsEngine = (
     zPos: 0,   
     zVel: 0,   
     cycleState: 'IDLE' as 'IDLE' | 'RAPID_DOWN' | 'CUTTING' | 'RETRACT',
-    temperature: 45.0 // Initial bearing temp
+    temperature: 45.0,
+    wearFactor: 0.0 // 0 to 1, increases over time during cuts
   });
   
   const paramsRef = useRef(params);
@@ -36,8 +38,8 @@ export const usePhysicsEngine = (
 
   const stepPhysics = useCallback(() => {
     const { mass, stiffness, damping, baseForce, noiseLevel } = paramsRef.current;
-    const { isCycleActive, feedOverride, spindleOverride, targetRpc } = controllerRef.current;
-    let { t, zPos, zVel, cycleState, temperature } = stateRef.current;
+    const { isCycleActive, feedOverride, spindleOverride, targetRpc, coolantActive } = controllerRef.current;
+    let { t, zPos, zVel, cycleState, temperature, wearFactor } = stateRef.current;
 
     // --- 1. Controller Logic (Cycle State) ---
     const WORKPIECE_Z = 0.35;
@@ -48,7 +50,6 @@ export const usePhysicsEngine = (
     let actualCuttingForce = 0;
     const currentRpm = targetRpc * spindleOverride;
 
-    // Cycle transitions only occur if Controller is Active
     if (isCycleActive) {
         switch (cycleState) {
             case 'IDLE':
@@ -62,32 +63,45 @@ export const usePhysicsEngine = (
                 targetVel = 0.02 * feedOverride;
                 // Force increases with Feed Rate
                 actualCuttingForce = baseForce * feedOverride * (1 + (Math.random()*0.1)); 
+                // Simulate wear accumulation during heavy cuts
+                if (actualCuttingForce > 150) {
+                    wearFactor += 0.0001; 
+                }
                 if (zPos >= BOTTOM_Z) cycleState = 'RETRACT';
                 break;
             case 'RETRACT':
-                targetVel = -0.3; // Rapid retract (fixed speed usually)
+                targetVel = -0.3; 
                 if (zPos <= RETRACT_Z) cycleState = 'RAPID_DOWN';
                 break;
         }
     } else {
-        // Feed Hold logic: Stop motion, maintain position
         targetVel = 0;
-        if (cycleState === 'CUTTING') actualCuttingForce = 0; // Spindle still spinning but no feed
+        if (cycleState === 'CUTTING') actualCuttingForce = 0;
     }
 
-    // --- 2. Kinematics (PI Controller for Motor) ---
+    // Clamp wear
+    if (wearFactor > 1.0) wearFactor = 1.0;
+
+    // --- 2. Kinematics ---
     const Kp = 50.0; 
     const error = targetVel - zVel;
     const motorForce = error * Kp * mass; 
 
     // --- 3. Vibration & Sensor Model ---
+    // Effective stiffness degrades with wear
+    const wearStiffnessMult = Math.max(0.5, 1.0 - (wearFactor * 0.5));
     const extension = Math.max(0.1, zPos); 
-    const effectiveStiffness = stiffness / extension; 
+    
+    // Coolant Effect on Stiffness/Damping
+    // Coolant film adds slight damping
+    const effectiveDamping = damping * (coolantActive ? 1.2 : 1.0);
+    const effectiveStiffness = (stiffness * wearStiffnessMult) / extension; 
+    
     const naturalFreq = (1 / (2 * Math.PI)) * Math.sqrt(effectiveStiffness / mass);
     const omega = 2 * Math.PI * (currentRpm / 60); // Hz
     
-    // Unbalance (1x RPM)
-    const unbalanceAmp = (currentRpm / 3000) * 10 * 0.000005; // Scaling factor
+    // Unbalance (1x RPM) - Increases with wear
+    const unbalanceAmp = (currentRpm / 3000) * 10 * 0.000005 * (1 + wearFactor * 5); 
     const F_unbalance = unbalanceAmp * Math.sin(omega * t);
 
     // Cutting Vibration
@@ -100,30 +114,49 @@ export const usePhysicsEngine = (
         }
     }
 
-    const totalVibForce = F_unbalance + F_cutting_vib;
-    const vibDisplacement = (totalVibForce / effectiveStiffness) + ((Math.random() - 0.5) * noiseLevel);
+    let totalVibForce = F_unbalance + F_cutting_vib;
+    // Add randomness based on noise level
+    let noise = (Math.random() - 0.5) * noiseLevel;
+
+    // REQUEST: Stop vibration simulation when retracting
+    if (cycleState === 'RETRACT') {
+        totalVibForce = 0;
+        noise = noise * 0.1; // Minimal noise floor
+    }
+
+    // Damping term is simplified here as steady state amplitude approximation + noise
+    const dampingReduction = 1 / (1 + (effectiveDamping * 0.001)); 
+    const vibDisplacement = ((totalVibForce / effectiveStiffness) * dampingReduction) + noise;
     
-    const vibVelocity = vibDisplacement * omega;
+    const vibVelocity = vibDisplacement * omega; // Approximation for visualization
     const vibAccel = vibVelocity * omega;
 
-    // --- 4. Electrical Motor Load Simulation ---
-    // Base load for spinning + Load from Cutting Force
-    const baseLoad = (currentRpm / 3000) * 20; // 20% load just to spin
-    const cuttingLoad = (actualCuttingForce / 500) * 60; // Up to 60% load from cutting
+    // --- 4. Motor & Temp & Viscosity ---
+    const baseLoad = (currentRpm / 3000) * 20; 
+    const cuttingLoad = (actualCuttingForce / 500) * 60; 
     const motorLoad = Math.min(100, Math.max(0, baseLoad + cuttingLoad + (Math.random()*2)));
 
-    // --- 5. Temperature Simulation ---
-    // Temp rises with Load, cools towards ambient (25C)
-    const targetTemp = 25 + (motorLoad * 0.8);
-    temperature += (targetTemp - temperature) * 0.001; // Slow thermal mass
+    // Thermodynamics with Coolant
+    // Coolant on: Target temp ~28C. Coolant off: Target temp ~60C+ depending on load.
+    // Cooling rate is faster if coolant is on.
+    const ambientTemp = 22;
+    const heatGen = motorLoad * 0.8;
+    const coolingTarget = coolantActive ? (ambientTemp + 5) : (ambientTemp + heatGen);
+    const thermalInertia = coolantActive ? 0.05 : 0.002; // Coolant cools fast
 
-    // --- 6. Integrate Macro Motion ---
-    const netMacroForce = motorForce + (mass * 9.81) - (cycleState === 'CUTTING' ? actualCuttingForce : 0);
-    zVel += (targetVel - zVel) * 0.1; 
+    temperature += (coolingTarget - temperature) * thermalInertia;
+
+    // Viscosity Calculation (Arrhenius-like approx for ISO VG 68 oil)
+    // Viscosity drops as temp rises. 
+    // Approx: 68 cSt at 40C. 
+    const viscosity = 150 * Math.exp(-0.035 * (temperature - 25));
+
+    // --- 5. Integrate Motion ---
+    zVel += (targetVel - zVel) * 0.05; 
     zPos += zVel * DT;
 
     t += DT;
-    stateRef.current = { t, zPos, zVel, cycleState, temperature };
+    stateRef.current = { t, zPos, zVel, cycleState, temperature, wearFactor };
 
     return {
       timestamp: t,
@@ -132,9 +165,10 @@ export const usePhysicsEngine = (
       acceleration: vibAccel,
       zPos: zPos,
       torque: (motorForce * SCREW_PITCH) / (2 * Math.PI),
-      rpm: currentRpm + (Math.random() * 5), // Slight jitter in sensor reading
+      rpm: currentRpm + (Math.random() * 5),
       motorLoad: motorLoad,
-      temperature: temperature
+      temperature: temperature,
+      viscosity: viscosity
     };
   }, []);
 
@@ -143,16 +177,20 @@ export const usePhysicsEngine = (
     let lastChartUpdate = 0;
 
     const loop = (timestamp: number) => {
-      // Always run physics loop to simulate idle vibrations
+      // Run multiple physics steps per frame to keep up with real-time if needed
+      // For now, we run 1 step per frame but the DT is small, so time moves slower than real-time
+      // which is fine for detailed visualization.
       const dataPoint = stepPhysics();
 
-      if (timestamp - lastChartUpdate > 50) { // Update charts at 20Hz
+      // Update React state at ~20Hz to avoid rendering bottlenecks
+      if (timestamp - lastChartUpdate > 50) { 
         setSimulationState({
              isRunning: true,
              t: stateRef.current.t,
              zPos: stateRef.current.zPos,
              vibration: dataPoint.displacement,
-             cycleState: stateRef.current.cycleState
+             cycleState: stateRef.current.cycleState,
+             wear: stateRef.current.wearFactor
         });
         setTelemetry(prev => {
           const newData = [...prev, dataPoint];

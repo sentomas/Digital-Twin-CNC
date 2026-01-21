@@ -1,10 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { usePhysicsEngine } from './hooks/usePhysicsEngine';
-import { PhysicsParams, AssetHealthStats, ControllerState } from './types';
+import { PhysicsParams, AssetHealthStats, ControllerState, TrendRecord, CycleReport } from './types';
 import DigitalTwinVisualizer from './components/DigitalTwinVisualizer';
 import CncController from './components/CncController';
 import IIoTGateway from './components/IIoTGateway';
+import TelemetryCharts from './components/TelemetryCharts';
 import AiAnalyst from './components/AiAnalyst';
+import MachineMetrics from './components/MachineMetrics';
+import OperationSummary from './components/OperationSummary';
 
 // Initial default parameters (Fixed Machine Constants)
 const MACHINE_CONSTANTS: PhysicsParams = {
@@ -24,13 +27,17 @@ const App: React.FC = () => {
     feedOverride: 1.0,   // 100%
     spindleOverride: 1.0, // 100%
     targetRpc: 3000,
-    activeGCodeLine: 0
+    activeGCodeLine: 0,
+    coolantActive: false
   });
 
   // 2. Physics Engine (Simulates Machine + Sensors based on Controller)
   const { telemetry, currentStat } = usePhysicsEngine(MACHINE_CONSTANTS, controllerState);
 
-  // 3. Cloud Analytics (Computes aggregates from Telemetry)
+  // 3. Historical Data for Trends
+  const [trendHistory, setTrendHistory] = useState<TrendRecord[]>([]);
+
+  // 4. Cloud Analytics (Computes aggregates from Telemetry)
   const stats: AssetHealthStats = useMemo(() => {
     const recentWindow = telemetry.slice(-30);
     if (recentWindow.length === 0) {
@@ -59,6 +66,112 @@ const App: React.FC = () => {
       status
     };
   }, [telemetry, controllerState]);
+
+  // Update Trend History (approx every 0.5s of simulation time)
+  useEffect(() => {
+    const timeFloored = Math.floor(currentStat.t * 2) / 2;
+    setTrendHistory(prev => {
+        const last = prev[prev.length - 1];
+        if (!last || timeFloored > last.time) {
+            const newRecord = {
+                time: timeFloored,
+                rmsVelocity: stats.peakVelocity * 1000 * 0.707 // Convert to RMS mm/s
+            };
+            // Keep last 60 points
+            const newHistory = [...prev, newRecord];
+            if (newHistory.length > 60) return newHistory.slice(newHistory.length - 60);
+            return newHistory;
+        }
+        return prev;
+    });
+  }, [currentStat.t, stats.peakVelocity]);
+
+  // 5. Calculate Scalar RUL for Widget
+  const rulPrediction = useMemo(() => {
+    if (trendHistory.length < 5) return -1;
+    
+    const criticalLimit = 11.2;
+    const startVal = stats.peakVelocity * 1000 * 0.707;
+    
+    // Degradation factor
+    let stressFactor = 0.05; 
+    if (stats.status === 'WARNING') stressFactor = 0.15;
+    if (stats.status === 'CRITICAL') stressFactor = 0.35;
+    const lambda = stressFactor * (1 + (stats.rmsAcceleration / 10));
+
+    // Simple solve: limit = start * e^(lambda * t) => t = ln(limit/start) / lambda
+    if (startVal >= criticalLimit) return 0;
+    if (lambda <= 0) return -1;
+
+    // Time remaining from NOW
+    const tRemaining = Math.log(criticalLimit / Math.max(0.1, startVal)) / (lambda * 0.1); // Scaled by sim time factor
+    
+    // Cap at reasonable max for UI (e.g. 1 hour simulated)
+    return tRemaining > 3600 ? -1 : tRemaining * 20; // Scale to real seconds roughly
+  }, [stats, trendHistory]);
+
+  // --- SUMMARY LOGIC ---
+  const [report, setReport] = useState<CycleReport | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+  
+  // Refs to track data during a cycle
+  const cycleDataRef = useRef({
+    maxVib: 0,
+    maxTemp: 0,
+    loadSum: 0,
+    count: 0,
+    startWear: 0
+  });
+  const wasCycleActiveRef = useRef(false);
+
+  useEffect(() => {
+    // 1. Cycle Just Started
+    if (controllerState.isCycleActive && !wasCycleActiveRef.current) {
+        cycleDataRef.current = {
+            maxVib: 0,
+            maxTemp: 0,
+            loadSum: 0,
+            count: 0,
+            startWear: currentStat.wear
+        };
+    }
+
+    // 2. Cycle Active: Accumulate Data
+    if (controllerState.isCycleActive) {
+        const velMM = stats.peakVelocity * 1000;
+        const temp = telemetry[telemetry.length-1]?.temperature || 0;
+        
+        cycleDataRef.current.maxVib = Math.max(cycleDataRef.current.maxVib, velMM);
+        cycleDataRef.current.maxTemp = Math.max(cycleDataRef.current.maxTemp, temp);
+        cycleDataRef.current.loadSum += stats.avgLoad;
+        cycleDataRef.current.count++;
+    }
+
+    // 3. Cycle Just Ended: Generate Report
+    if (!controllerState.isCycleActive && wasCycleActiveRef.current) {
+        // Calculate report
+        const data = cycleDataRef.current;
+        const avgLoad = data.count > 0 ? data.loadSum / data.count : 0;
+        
+        let finalStatus: 'OPTIMAL' | 'WARNING' | 'CRITICAL' = 'OPTIMAL';
+        if (data.maxVib > 11.2 || avgLoad > 95) finalStatus = 'CRITICAL';
+        else if (data.maxVib > 4.5 || avgLoad > 80) finalStatus = 'WARNING';
+
+        setReport({
+            timestamp: Date.now(),
+            duration: data.count * 0.05, // Rough est
+            maxVibration: data.maxVib,
+            maxTemp: data.maxTemp,
+            avgLoad: avgLoad,
+            toolWearDelta: currentStat.wear - data.startWear,
+            finalStatus: finalStatus
+        });
+        setShowSummary(true);
+    }
+
+    wasCycleActiveRef.current = controllerState.isCycleActive;
+  }, [controllerState.isCycleActive, stats, telemetry, currentStat.wear]);
+
 
   return (
     <div className="min-h-screen bg-industrial-950 text-industrial-text p-4 font-sans flex flex-col">
@@ -122,6 +235,7 @@ const App: React.FC = () => {
                     params={{...MACHINE_CONSTANTS, frequency: (controllerState.targetRpc * controllerState.spindleOverride)/60, force: MACHINE_CONSTANTS.baseForce * controllerState.feedOverride}} 
                     status={stats.status} 
                     cycleState={currentStat.cycleState}
+                    wear={currentStat.wear}
                 />
             </div>
             {/* AI Analyst fits below the machine visualization */}
@@ -136,12 +250,33 @@ const App: React.FC = () => {
                 <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
                 <h2 className="text-xs font-bold uppercase text-industrial-600">IIoT Sensor Gateway</h2>
              </div>
-             <div className="flex-1">
-                <IIoTGateway data={telemetry} />
+             <div className="flex-1 flex flex-col">
+                <MachineMetrics 
+                  rpm={stats.dominantFrequency * 60} 
+                  wear={currentStat.wear} 
+                  rul={rulPrediction}
+                  status={stats.status}
+                />
+                <div className="flex-1 min-h-[400px]">
+                  <TelemetryCharts 
+                    data={telemetry} 
+                    stats={stats} 
+                    trendHistory={trendHistory}
+                  />
+                </div>
              </div>
         </div>
 
       </main>
+
+      {/* Report Modal */}
+      {report && (
+          <OperationSummary 
+            report={report} 
+            isOpen={showSummary} 
+            onClose={() => setShowSummary(false)} 
+          />
+      )}
 
     </div>
   );

@@ -16,6 +16,7 @@ export interface ControllerState {
   spindleOverride: number;// 0 to 1.5 (150%)
   targetRpc: number;      // Base RPM setpoint
   activeGCodeLine: number;
+  coolantActive: boolean; // NEW: M08/M09 status
 }
 
 // Data point for charts
@@ -29,6 +30,13 @@ export interface TelemetryPoint {
   rpm: number;         // Actual RPM
   motorLoad: number;   // % Load
   temperature: number; // Celsius
+  viscosity: number;   // cSt (Centistokes) - Oil viscosity
+}
+
+// Historical Trend Data
+export interface TrendRecord {
+  time: number;
+  rmsVelocity: number;
 }
 
 // Aggregated stats for AI analysis
@@ -47,6 +55,7 @@ export interface SimulationState {
   zPos: number; // Macro Position (0 = Top, 0.4 = Bottom/Workpiece)
   vibration: number; // Micro displacement
   cycleState: 'IDLE' | 'RAPID_DOWN' | 'CUTTING' | 'RETRACT';
+  wear: number; // 0.0 to 1.0 representing tool/bearing degradation
 }
 
 export interface MaintenanceInsight {
@@ -54,4 +63,14 @@ export interface MaintenanceInsight {
   severity: string;
   recommendation: string;
   confidence: number;
+}
+
+export interface CycleReport {
+  timestamp: number;
+  duration: number;
+  maxTemp: number;
+  maxVibration: number;
+  avgLoad: number;
+  toolWearDelta: number;
+  finalStatus: 'OPTIMAL' | 'WARNING' | 'CRITICAL';
 }

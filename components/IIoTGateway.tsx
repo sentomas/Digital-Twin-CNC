@@ -7,7 +7,7 @@ interface Props {
 }
 
 const IIoTGateway: React.FC<Props> = ({ data }) => {
-  const latest = data[data.length - 1] || { rpm: 0, motorLoad: 0, temperature: 25, displacement: 0 };
+  const latest = data[data.length - 1] || { rpm: 0, motorLoad: 0, temperature: 25, displacement: 0, viscosity: 68 };
   
   const chartData = data.slice(-50).map(d => ({
     ...d,
@@ -40,44 +40,57 @@ const IIoTGateway: React.FC<Props> = ({ data }) => {
         </div>
 
         {/* Sensor Gauges */}
-        <div className="grid grid-cols-3 gap-1 p-4 bg-industrial-950/50">
+        <div className="grid grid-cols-4 gap-1 p-4 bg-industrial-950/50">
             {/* RPM Gauge */}
-            <div className="bg-white p-3 rounded border border-industrial-700 flex flex-col items-center">
-                <span className="text-[10px] text-industrial-600 uppercase mb-1">Spindle</span>
-                <div className="relative w-16 h-16 flex items-center justify-center">
+            <div className="bg-white p-2 rounded border border-industrial-700 flex flex-col items-center">
+                <span className="text-[9px] text-industrial-600 uppercase mb-1">Spindle</span>
+                <div className="relative w-12 h-12 flex items-center justify-center">
                     <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="32" cy="32" r="28" stroke="#e2e8f0" strokeWidth="4" fill="none" />
-                        <circle cx="32" cy="32" r="28" stroke="#0284c7" strokeWidth="4" fill="none" strokeDasharray={175} strokeDashoffset={175 - (175 * Math.min(latest.rpm, 3000)/3000)} className="transition-all duration-300" />
+                        <circle cx="24" cy="24" r="20" stroke="#e2e8f0" strokeWidth="3" fill="none" />
+                        <circle cx="24" cy="24" r="20" stroke="#0284c7" strokeWidth="3" fill="none" strokeDasharray={125} strokeDashoffset={125 - (125 * Math.min(latest.rpm, 3000)/3000)} className="transition-all duration-300" />
                     </svg>
-                    <span className="absolute text-xs font-bold text-industrial-text font-mono">{(latest.rpm).toFixed(0)}</span>
+                    <span className="absolute text-[10px] font-bold text-industrial-text font-mono">{(latest.rpm).toFixed(0)}</span>
                 </div>
-                <span className="text-[10px] text-industrial-accent font-bold mt-1">RPM</span>
+                <span className="text-[9px] text-industrial-accent font-bold mt-1">RPM</span>
             </div>
 
             {/* Load Gauge */}
-            <div className="bg-white p-3 rounded border border-industrial-700 flex flex-col items-center">
-                <span className="text-[10px] text-industrial-600 uppercase mb-1">Load</span>
-                <div className="relative w-16 h-16 flex items-center justify-center">
+            <div className="bg-white p-2 rounded border border-industrial-700 flex flex-col items-center">
+                <span className="text-[9px] text-industrial-600 uppercase mb-1">Load</span>
+                <div className="relative w-12 h-12 flex items-center justify-center">
                     <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="32" cy="32" r="28" stroke="#e2e8f0" strokeWidth="4" fill="none" />
-                        <circle cx="32" cy="32" r="28" stroke={latest.motorLoad > 80 ? '#ef4444' : '#eab308'} strokeWidth="4" fill="none" strokeDasharray={175} strokeDashoffset={175 - (175 * Math.min(latest.motorLoad, 100)/100)} className="transition-all duration-300" />
+                        <circle cx="24" cy="24" r="20" stroke="#e2e8f0" strokeWidth="3" fill="none" />
+                        <circle cx="24" cy="24" r="20" stroke={latest.motorLoad > 80 ? '#ef4444' : '#eab308'} strokeWidth="3" fill="none" strokeDasharray={125} strokeDashoffset={125 - (125 * Math.min(latest.motorLoad, 100)/100)} className="transition-all duration-300" />
                     </svg>
-                    <span className="absolute text-xs font-bold text-industrial-text font-mono">{(latest.motorLoad).toFixed(0)}%</span>
+                    <span className="absolute text-[10px] font-bold text-industrial-text font-mono">{(latest.motorLoad).toFixed(0)}%</span>
                 </div>
-                <span className="text-[10px] text-orange-500 font-bold mt-1">AMPS</span>
+                <span className="text-[9px] text-orange-500 font-bold mt-1">AMPS</span>
             </div>
 
             {/* Temp Gauge */}
-            <div className="bg-white p-3 rounded border border-industrial-700 flex flex-col items-center">
-                <span className="text-[10px] text-industrial-600 uppercase mb-1">Temp</span>
-                <div className="relative w-16 h-16 flex items-center justify-center">
+            <div className="bg-white p-2 rounded border border-industrial-700 flex flex-col items-center">
+                <span className="text-[9px] text-industrial-600 uppercase mb-1">Oil Temp</span>
+                <div className="relative w-12 h-12 flex items-center justify-center">
                     <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="32" cy="32" r="28" stroke="#e2e8f0" strokeWidth="4" fill="none" />
-                        <circle cx="32" cy="32" r="28" stroke="#16a34a" strokeWidth="4" fill="none" strokeDasharray={175} strokeDashoffset={175 - (175 * Math.min(latest.temperature, 100)/100)} className="transition-all duration-300" />
+                        <circle cx="24" cy="24" r="20" stroke="#e2e8f0" strokeWidth="3" fill="none" />
+                        <circle cx="24" cy="24" r="20" stroke="#16a34a" strokeWidth="3" fill="none" strokeDasharray={125} strokeDashoffset={125 - (125 * Math.min(latest.temperature, 100)/100)} className="transition-all duration-300" />
                     </svg>
-                    <span className="absolute text-xs font-bold text-industrial-text font-mono">{(latest.temperature).toFixed(1)}</span>
+                    <span className="absolute text-[10px] font-bold text-industrial-text font-mono">{(latest.temperature).toFixed(1)}</span>
                 </div>
-                <span className="text-[10px] text-green-600 font-bold mt-1">°C</span>
+                <span className="text-[9px] text-green-600 font-bold mt-1">°C</span>
+            </div>
+
+            {/* Viscosity Gauge */}
+            <div className="bg-white p-2 rounded border border-industrial-700 flex flex-col items-center">
+                <span className="text-[9px] text-industrial-600 uppercase mb-1">Viscosity</span>
+                <div className="relative w-12 h-12 flex items-center justify-center">
+                    <svg className="w-full h-full transform -rotate-90">
+                        <circle cx="24" cy="24" r="20" stroke="#e2e8f0" strokeWidth="3" fill="none" />
+                        <circle cx="24" cy="24" r="20" stroke="#8b5cf6" strokeWidth="3" fill="none" strokeDasharray={125} strokeDashoffset={125 - (125 * Math.min(latest.viscosity, 150)/150)} className="transition-all duration-300" />
+                    </svg>
+                    <span className="absolute text-[10px] font-bold text-industrial-text font-mono">{(latest.viscosity).toFixed(0)}</span>
+                </div>
+                <span className="text-[9px] text-purple-600 font-bold mt-1">cSt</span>
             </div>
         </div>
 

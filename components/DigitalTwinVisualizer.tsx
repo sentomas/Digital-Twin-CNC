@@ -7,13 +7,26 @@ interface Props {
   params: PhysicsParams;
   status: 'OPTIMAL' | 'WARNING' | 'CRITICAL';
   cycleState: string;
+  wear: number; // 0 to 1
 }
 
-const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, status, cycleState }) => {
+const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, status, cycleState, wear }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rotationRef = useRef(0);
   const animationRef = useRef<number>(0);
   const [isZoomed, setIsZoomed] = useState(false);
+
+  // Determine Wear Color based on thresholds
+  let wearColor = 'text-green-400';
+  let wearBg = 'bg-green-500';
+  
+  if (wear > 0.8) {
+      wearColor = 'text-red-400';
+      wearBg = 'bg-red-500';
+  } else if (wear > 0.5) {
+      wearColor = 'text-yellow-400';
+      wearBg = 'bg-yellow-500';
+  }
 
   useEffect(() => {
     const render = () => {
@@ -58,6 +71,13 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
             for (let x = 0; x <= width; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
             for (let y = 0; y <= height; y += 40) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
             ctx.stroke();
+        }
+
+        // --- CHATTER EFFECT ---
+        // If critical and cutting, apply random shake to context to simulate chatter
+        if (status === 'CRITICAL' && cycleState === 'CUTTING') {
+            const shake = (Math.random() - 0.5) * 4; // 4px shake
+            ctx.translate(shake, 0);
         }
         
         // --- 3. Helper Functions ---
@@ -169,13 +189,34 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
         ctx.rect(toolX, toolY, toolW, toolLen);
         ctx.clip();
 
-        // Tool Gradient
+        // Tool Gradient with WEAR Visualization
         const toolGrad = ctx.createLinearGradient(toolX, 0, toolX + toolW, 0);
-        toolGrad.addColorStop(0, '#64748b');
-        toolGrad.addColorStop(0.3, '#f8fafc');
-        toolGrad.addColorStop(0.5, '#e2e8f0');
+        
+        // Base metallic colors
+        let c1 = '#64748b';
+        let c2 = '#f8fafc';
+        let c3 = '#475569';
+
+        // Apply Thermal Discoloration / Wear darken effect
+        if (wear > 0.2) {
+             // Blend towards a dark amber/brown/black
+             if (wear > 0.8) {
+                 c1 = '#451a03'; // Dark Brown/Black
+                 c2 = '#7f1d1d'; // Deep Red Rust
+                 c3 = '#27272a'; // Black
+             } else if (wear > 0.5) {
+                 c1 = '#92400e'; // Amber
+                 c2 = '#d97706'; // Orange-ish
+                 c3 = '#78350f';
+             }
+        }
+
+        toolGrad.addColorStop(0, c1);
+        toolGrad.addColorStop(0.3, c2);
+        toolGrad.addColorStop(0.5, '#e2e8f0'); // Highlight remains
         toolGrad.addColorStop(0.8, '#94a3b8');
-        toolGrad.addColorStop(1, '#475569');
+        toolGrad.addColorStop(1, c3);
+        
         ctx.fillStyle = toolGrad;
         ctx.fillRect(toolX, toolY, toolW, toolLen);
 
@@ -198,24 +239,17 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
         ctx.restore();
 
         // --- 7. Table & Workpiece ---
-        // Fixed Table position in World Space
-        const tableY = 400 + 40; // 400 is workpiece top, so table is lower
-        
-        // Workpiece Block
-        // Assume workpiece surface is exactly at Y=400 initially?
-        // Let's say table surface is at Y=440. Workpiece is 40mm tall.
+        const tableY = 400 + 40; 
         const workW = 120;
         const workH = 40;
         const workX = centerX - workW/2;
-        const workY = 440 - workH; // 400
+        const workY = 440 - workH; 
         
         drawMetallicRect(centerX - 140, 440, 280, 30, false); // Table
         
         // Draw Workpiece
         ctx.fillStyle = '#b45309'; // Copper/Orange
         ctx.fillRect(workX, workY, workW, workH);
-        
-        // Top surface highlight
         ctx.fillStyle = '#d97706';
         ctx.fillRect(workX, workY, workW, 5);
 
@@ -227,27 +261,30 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
             ctx.fillStyle = '#facc15';
             ctx.shadowColor = '#facc15';
             ctx.shadowBlur = 10;
-            const sparkCount = 10 + (params.force / 10);
+            // Chatter creates more violent sparks
+            const chatterMultiplier = status === 'CRITICAL' ? 3.0 : 1.0; 
+            const sparkCount = (10 + (params.force / 10)) * chatterMultiplier;
             
             for(let i=0; i<sparkCount; i++) {
                 const sx = toolX + toolW/2;
                 const sy = toolTipY;
-                
-                // Fountain effect
-                const angle = -Math.PI/2 + (Math.random() - 0.5) * 2;
-                const dist = Math.random() * (isZoomed ? 40 : 20);
-                
+                const angle = -Math.PI/2 + (Math.random() - 0.5) * (status === 'CRITICAL' ? 3.0 : 2);
+                const dist = Math.random() * (isZoomed ? 40 : 20) * chatterMultiplier;
                 const px = sx + Math.cos(angle) * dist;
                 const py = sy + Math.sin(angle) * dist;
-                
                 const size = Math.random() * (isZoomed ? 2 : 3);
+                
+                if (status === 'CRITICAL' && Math.random() > 0.7) {
+                     ctx.fillStyle = '#ef4444'; 
+                } else {
+                     ctx.fillStyle = '#facc15';
+                }
                 ctx.fillRect(px, py, size, size);
             }
             ctx.shadowBlur = 0;
         }
 
         ctx.restore();
-
         animationRef.current = requestAnimationFrame(render);
     };
 
@@ -255,7 +292,7 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
     return () => {
         if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [displacement, zPos, params, isZoomed, status, cycleState]);
+  }, [displacement, zPos, params, isZoomed, status, cycleState, wear]);
 
   return (
     <div className="relative bg-white rounded-xl border border-industrial-700 overflow-hidden shadow-lg h-[500px] group">
@@ -293,6 +330,22 @@ const DigitalTwinVisualizer: React.FC<Props> = ({ displacement, zPos, params, st
         onClick={() => setIsZoomed(!isZoomed)}
       />
       
+      {/* Heads Up Display for Tool Health */}
+      <div className="absolute top-16 left-4 z-10 bg-black/60 backdrop-blur-sm p-3 rounded border-l-4 border-industrial-accent text-white w-40 transition-all">
+        <div className="text-[10px] uppercase font-mono text-slate-300">Tool Condition</div>
+        <div className="flex items-end gap-1">
+            <span className={`text-xl font-bold font-mono ${wearColor}`}>
+                {((1-wear) * 100).toFixed(1)}%
+            </span>
+        </div>
+        <div className="w-full bg-gray-700 h-1.5 mt-1 rounded-full overflow-hidden">
+            <div 
+                className={`h-full ${wearBg} transition-all duration-300`} 
+                style={{ width: `${(1-wear)*100}%` }}
+            ></div>
+        </div>
+      </div>
+
       {/* Bottom Stats Overlay */}
       <div className="absolute bottom-4 left-4 right-4 grid grid-cols-3 gap-2 pointer-events-none">
         <div className="bg-white/90 backdrop-blur border border-industrial-700 p-2 rounded shadow-sm">
