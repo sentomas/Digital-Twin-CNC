@@ -67,7 +67,7 @@ const App: React.FC = () => {
     };
   }, [telemetry, controllerState]);
 
-  // Update Trend History (approx every 0.5s of simulation time)
+  // Update Trend History (approx every 0.5s)
   useEffect(() => {
     const timeFloored = Math.floor(currentStat.t * 2) / 2;
     setTrendHistory(prev => {
