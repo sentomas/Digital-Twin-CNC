@@ -348,10 +348,12 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
                                     <div className="text-[10px] font-medium">Critical Threshold Violation</div>
                                 </div>
                              ) : (
-                                <div className="text-green-600">
-                                    <div className="text-xl font-bold font-mono">1000h</div>
-                                    <div className="text-[10px] font-medium">Operation Stable</div>
-                                </div>
+                                // Find this block around line 369:
+<div className="text-green-600">
+    {/* Use &gt; instead of just > */}
+    <div className="text-xl font-bold font-mono">&gt; 1000h</div>
+    <div className="text-[10px] font-medium">Operation Stable</div>
+</div>
                              )}
 
                              {/* Expandable Math Details */}
