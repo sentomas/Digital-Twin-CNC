@@ -186,7 +186,7 @@ const App: React.FC = () => {
             </div>
             <div>
                 <h1 className="text-2xl font-bold text-industrial-text tracking-tight">VibraTwin <span className="text-industrial-600 font-light">CNC</span></h1>
-                <p className="text-xs text-industrial-600 uppercase tracking-widest">Digital Twin & IIoT Simulator</p>
+                <p className="text-xs text-industrial-600 uppercase tracking-widest">Blending Digital Twin & IIoT with Physics</p>
             </div>
         </div>
         
