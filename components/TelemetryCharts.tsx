@@ -349,7 +349,7 @@ const TelemetryCharts: React.FC<Props> = ({ data, stats, trendHistory }) => {
                                 </div>
                              ) : (
                                 <div className="text-green-600">
-                                    <div className="text-xl font-bold font-mono">> 1000h</div>
+                                    <div className="text-xl font-bold font-mono">1000h</div>
                                     <div className="text-[10px] font-medium">Operation Stable</div>
                                 </div>
                              )}
