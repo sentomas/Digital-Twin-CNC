@@ -192,7 +192,7 @@ const App: React.FC = () => {
         
         <div className="flex gap-6 text-right">
             <div>
-                <span className="text-[10px] text-industrial-600 uppercase font-bold block">Simulation Time</span>
+                <span className="text-[10px] text-industrial-600 uppercase font-bold block">Elapsed Time</span>
                 <span className="font-mono text-lg text-industrial-accent font-bold">{currentStat.t.toFixed(1)}s</span>
             </div>
             <div className="border-l border-slate-200 pl-6">
